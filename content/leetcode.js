@@ -74,7 +74,7 @@ function setupEventListeners() {
 }
 
 // 2. DOM Mutation Observer
-let observer = null;
+var observer = null;
 function startObserver() {
   if (observer) {
     observer.disconnect();
