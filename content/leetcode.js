@@ -88,12 +88,11 @@ function setupEventListeners() {
     if (button) {
       const text = (button.textContent || "").trim();
       
-      const isSubmit = text === "Submit" || 
+      const isSubmit = text.includes("Submit") || 
                        button.getAttribute("data-e2e-locator") === "console-submit-button" ||
                        button.classList.contains("submit-btn");
                        
-      const isRun = text === "Run" || 
-                    text === "Run Code" || 
+      const isRun = text.includes("Run") || 
                     button.getAttribute("data-e2e-locator") === "console-run-button" ||
                     button.classList.contains("run-btn");
                     
