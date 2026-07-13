@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>LeetGit Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-color: #0b0f19;
+      --card-bg: #161f30;
+      --text-main: #f3f4f6;
+      --text-muted: #9ca3af;
+      --primary: #6366f1;
+      --primary-hover: #4f46e5;
+      --success: #10b981;
+      --success-bg: rgba(16, 185, 129, 0.1);
+      --danger: #ef4444;
+      --border-color: #243249;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Outfit', sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      width: 320px;
+      padding: 20px;
+      overflow-x: hidden;
+    }
+
+    /* Layout Header */
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .logo-container {
+      position: relative;
+      width: 32px;
+      height: 32px;
+    }
+
+    .logo {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+    }
+
+    .logo-glow {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: var(--primary);
+      filter: blur(8px);
+      opacity: 0.5;
+      z-index: -1;
+    }
+
+    h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      letter-spacing: -0.5px;
+      background: linear-gradient(135deg, #fff 0%, #a5b4fc 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .version {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-left: auto;
+    }
+
+    /* Card Container */
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* State A: Logged Out */
+    #state-logged-out {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: 15px;
+    }
+
+    .description {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 10px;
+      font-family: inherit;
+      font-size: 0.95rem;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s ease-in-out;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+      color: white;
+      box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.4);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 12px -1px rgba(99, 102, 241, 0.5);
+    }
+
+    .btn-primary:active {
+      transform: translateY(0);
+    }
+
+    .github-icon {
+      width: 18px;
+      height: 18px;
+      fill: currentColor;
+    }
+
+    /* State B: Configure Repo */
+    #state-configure-repo {
+      display: none;
+      flex-direction: column;
+      gap: 15px;
+    }
+
+    .user-profile {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .user-avatar {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 1px solid var(--border-color);
+    }
+
+    .user-name {
+      font-size: 0.9rem;
+      font-weight: 500;
+    }
+
+    .label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+    }
+
+    .input-field {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+      background: #0f172a;
+      color: white;
+      font-family: inherit;
+      font-size: 0.9rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .input-field:focus {
+      border-color: var(--primary);
+    }
+
+    .input-help {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    /* State C: Active Dashboard */
+    #state-active {
+      display: none;
+      flex-direction: column;
+      gap: 15px;
+    }
+
+    .active-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--success);
+      background: var(--success-bg);
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      border: 1px solid rgba(16, 185, 129, 0.2);
+    }
+
+    .active-badge svg {
+      width: 16px;
+      height: 16px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2.5;
+    }
+
+    .info-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .repo-link {
+      font-size: 0.9rem;
+      color: var(--primary);
+      text-decoration: none;
+      font-weight: 500;
+      word-break: break-all;
+    }
+
+    .repo-link:hover {
+      text-decoration: underline;
+    }
+
+    .stats-container {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      background: rgba(15, 23, 42, 0.4);
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+    }
+
+    .stat-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .stat-label {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .stat-value {
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+
+    .history-title {
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      margin-top: 5px;
+    }
+
+    .history-list {
+      max-height: 120px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding-right: 4px;
+    }
+
+    /* Custom Scrollbar */
+    .history-list::-webkit-scrollbar {
+      width: 4px;
+    }
+    .history-list::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .history-list::-webkit-scrollbar-thumb {
+      background: var(--border-color);
+      border-radius: 2px;
+    }
+
+    .history-item {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .history-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .history-name {
+      font-size: 0.8rem;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: var(--text-main);
+    }
+
+    .history-meta {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+    }
+
+    .history-link {
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-decoration: none;
+      flex-shrink: 0;
+    }
+
+    .history-link:hover {
+      color: var(--primary-hover);
+    }
+
+    .history-link svg {
+      width: 14px;
+      height: 14px;
+      fill: currentColor;
+    }
+
+    .disconnect-link {
+      align-self: center;
+      font-size: 0.75rem;
+      color: var(--danger);
+      cursor: pointer;
+      text-decoration: none;
+      margin-top: 5px;
+      transition: opacity 0.2s;
+    }
+
+    .disconnect-link:hover {
+      opacity: 0.8;
+      text-decoration: underline;
+    }
+
+    /* Error Message */
+    .error-msg {
+      color: var(--danger);
+      font-size: 0.75rem;
+      display: none;
+      word-break: break-word;
+    }
+
+    .loading-spinner {
+      display: none;
+      width: 18px;
+      height: 18px;
+      border: 2px solid rgba(255,255,255,0.2);
+      border-radius: 50%;
+      border-top-color: white;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo-container">
+      <div class="logo-glow"></div>
+      <img src="../icons/icon128.png" alt="LeetGit" class="logo">
+    </div>
+    <h1>LeetGit</h1>
+    <span class="version">v1.0.0</span>
+  </div>
+
+  <div class="card">
+    <!-- STATE A: Logged Out -->
+    <div id="state-logged-out">
+      <p class="description">Automatically push your accepted LeetCode solutions to a GitHub repository.</p>
+      <button id="btn-connect" class="btn btn-primary">
+        <svg class="github-icon" viewBox="0 0 16 16">
+          <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+        </svg>
+        <span>Connect GitHub</span>
+        <div id="connect-spinner" class="loading-spinner"></div>
+      </button>
+      <div id="login-error" class="error-msg"></div>
+    </div>
+
+    <!-- STATE B: Configure Repo -->
+    <div id="state-configure-repo">
+      <div class="user-profile">
+        <img id="user-avatar" src="" alt="Avatar" class="user-avatar">
+        <div>
+          <div class="label" style="font-size:0.65rem;">Logged In As</div>
+          <div id="username" class="user-name">@username</div>
+        </div>
+      </div>
+
+      <div class="info-row">
+        <label for="repo-name" class="label">Repository Name</label>
+        <input type="text" id="repo-name" class="input-field" placeholder="e.g. leetcode-solutions">
+        <span class="input-help">The repository will be created if it doesn't exist.</span>
+      </div>
+
+      <button id="btn-save-repo" class="btn btn-primary">
+        <span>Save & Configure</span>
+        <div id="save-spinner" class="loading-spinner"></div>
+      </button>
+      <div id="config-error" class="error-msg"></div>
+      <a id="btn-logout-b" class="disconnect-link">Disconnect GitHub</a>
+    </div>
+
+    <!-- STATE C: Active Syncing -->
+    <div id="state-active">
+      <div class="active-badge">
+        <svg viewBox="0 0 24 24">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+        <span>Syncing Active</span>
+      </div>
+
+      <div class="info-row">
+        <span class="label">Target Repository</span>
+        <a id="repo-link" href="#" target="_blank" class="repo-link">owner/repo</a>
+      </div>
+
+      <div class="stats-container">
+        <div class="stat-item">
+          <span class="stat-label">Total Solutions Pushed</span>
+          <span id="stat-total" class="stat-value">0</span>
+        </div>
+        <div class="stat-item" style="border-top: 1px solid var(--border-color); padding-top: 8px; margin-top: 4px; flex-direction: column; align-items: flex-start; gap: 4px;">
+          <span class="stat-label">Last Pushed</span>
+          <span id="stat-last-pushed" class="stat-value" style="font-size: 0.8rem; font-weight: normal; color: var(--text-main);">None yet</span>
+        </div>
+      </div>
+
+      <div class="history-title">Recent Pushes</div>
+      <div id="history-list" class="history-list">
+        <!-- Render history items dynamically -->
+        <div style="font-size:0.8rem; color:var(--text-muted); text-align:center; padding:10px 0;">No pushes recorded yet.</div>
+      </div>
+
+      <a id="btn-disconnect" class="disconnect-link">Disconnect Configuration</a>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
