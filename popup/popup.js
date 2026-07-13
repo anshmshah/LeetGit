@@ -1,5 +1,5 @@
 // Configuration constants - Update these with your deployed Vercel URL and GitHub Client ID
-const VERCEL_BACKEND_URL = process.env.VERCEL_BACKEND_URL; // Replace with your Vercel deployment URL
+const VERCEL_BACKEND_URL = "https://leet-git.vercel.app"; // Replace with your Vercel deployment URL
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID; // Replace with your GitHub OAuth App Client ID
 
 // DOM Elements

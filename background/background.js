@@ -1,5 +1,5 @@
 // Configuration constants - Update these with your deployed Vercel URL
-const VERCEL_BACKEND_URL = process.env.VERCEL_BACKEND_URL; // Replace with your Vercel deployment URL
+const VERCEL_BACKEND_URL = "https://leet-git.vercel.app"; // Replace with your Vercel deployment URL
 
 // Listen for messages from the content script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
