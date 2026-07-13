@@ -32,6 +32,28 @@ function initialize() {
   setupUrlPolling();
 }
 
+// Helper for sending messages to background worker safely, avoiding uncaught context invalidation errors
+function safeSendMessage(message, callback) {
+  if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
+    try {
+      chrome.runtime.sendMessage(message, (response) => {
+        // Clear last runtime error if any to avoid warnings in extension logs
+        if (chrome.runtime.lastError) {
+          console.warn("LeetGit: Communication warning:", chrome.runtime.lastError.message);
+        }
+        if (callback) callback(response);
+      });
+      return true;
+    } catch (err) {
+      console.warn("LeetGit: Extension context was invalidated. Please refresh the page.", err);
+    }
+  } else {
+    console.warn("LeetGit: Extension context is not available. Please refresh the page.");
+  }
+  if (callback) callback(null);
+  return false;
+}
+
 // 1. Setup Event Listeners
 function setupEventListeners() {
   // Listen for custom events dispatched by the MAIN world network interceptor
@@ -95,7 +117,7 @@ function handleSubmissionInitiated() {
     console.log(`LeetGit: Submission initiated. Cleared dedupe key: ${key}`);
 
     // Request early code extraction via background script (using chrome.scripting to bypass CSP)
-    chrome.runtime.sendMessage({ type: "EXTRACT_CODE_NOW" }, (response) => {
+    safeSendMessage({ type: "EXTRACT_CODE_NOW" }, (response) => {
       if (response && response.code) {
         sessionStorage.setItem("leetgit_submitted_code", response.code);
         console.log("LeetGit: Code extracted and cached in sessionStorage.");
@@ -166,6 +188,7 @@ function setupUrlPolling() {
   }
 }
 
+// Handler for URL changes in Single Page Application navigation
 function handleUrlChange() {
   // Re-observe DOM since SPA updates can tear down page elements
   startObserver();
@@ -291,7 +314,7 @@ function handleAcceptedTrigger(slug, title, lang, ext) {
   } else {
     // Live extraction fallback using chrome.scripting (failsafe in case of late load or missing cache)
     console.warn("LeetGit: Cached code not found. Querying live editor...");
-    chrome.runtime.sendMessage({ type: "EXTRACT_CODE_NOW" }, (response) => {
+    safeSendMessage({ type: "EXTRACT_CODE_NOW" }, (response) => {
       if (response && response.code) {
         triggerPush(finalSlug, finalTitle, finalLang, finalExt, response.code);
       } else {
@@ -332,7 +355,7 @@ function triggerPush(slug, title, lang, ext, code) {
   const key = `leetgit_pushed_${slug}_${lang}`;
   console.log("LeetGit: Sending push message for " + title + " (" + lang + ")");
 
-  chrome.runtime.sendMessage({
+  safeSendMessage({
     type: "SUBMISSION_ACCEPTED_DETECTED",
     payload: {
       problemSlug: slug,
@@ -342,8 +365,8 @@ function triggerPush(slug, title, lang, ext, code) {
       code: code
     }
   }, (response) => {
-    if (chrome.runtime.lastError || !response || !response.success) {
-      console.error("LeetGit: Push failed:", chrome.runtime.lastError || response?.error);
+    if (!response || !response.success) {
+      console.error("LeetGit: Push failed:", response?.error || "Unknown error");
       sessionStorage.removeItem(key);
     } else {
       console.log("LeetGit: Solution pushed successfully!", response.githubUrl);
