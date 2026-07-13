@@ -60,7 +60,7 @@ function setupEventListeners() {
     }, 1000);
   });
 
-  // Listen for clicks on the "Submit" button to clear deduplication flags
+  // Listen for clicks on the "Submit" button to clear deduplication flags and extract code early
   document.addEventListener("click", (e) => {
     const button = e.target.closest("button");
     if (button) {
@@ -69,16 +69,41 @@ function setupEventListeners() {
                        button.getAttribute("data-e2e-locator") === "console-submit-button" ||
                        button.classList.contains("submit-btn");
       if (isSubmit) {
-        const slug = getProblemSlug();
-        const lang = getLanguage();
-        if (slug && lang) {
-          const key = `leetgit_pushed_${slug}_${lang}`;
-          sessionStorage.removeItem(key);
-          console.log(`LeetGit: Submission initiated. Cleared dedupe key: ${key}`);
-        }
+        handleSubmissionInitiated();
       }
     }
   });
+
+  // Listen for keyboard submissions (Ctrl+Enter or Cmd+Enter)
+  document.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      const activeEl = document.activeElement;
+      if (activeEl && (activeEl.tagName === "TEXTAREA" || activeEl.closest(".editor") || activeEl.closest(".monaco-editor"))) {
+        handleSubmissionInitiated();
+      }
+    }
+  });
+}
+
+// Handler for submission click or keyboard shortcut - caches code immediately to avoid navigation race condition
+function handleSubmissionInitiated() {
+  const slug = getProblemSlug();
+  const lang = getLanguage();
+  if (slug && lang) {
+    const key = `leetgit_pushed_${slug}_${lang}`;
+    sessionStorage.removeItem(key);
+    console.log(`LeetGit: Submission initiated. Cleared dedupe key: ${key}`);
+
+    // Request early code extraction via background script (using chrome.scripting to bypass CSP)
+    chrome.runtime.sendMessage({ type: "EXTRACT_CODE_NOW" }, (response) => {
+      if (response && response.code) {
+        sessionStorage.setItem("leetgit_submitted_code", response.code);
+        console.log("LeetGit: Code extracted and cached in sessionStorage.");
+      } else {
+        console.warn("LeetGit: Early code extraction failed:", response?.error || "Unknown error");
+      }
+    });
+  }
 }
 
 // 2. DOM Mutation Observer
@@ -238,7 +263,7 @@ function getExtension(lang) {
   return ".txt";
 }
 
-// 5. Code extraction in MAIN world and push
+// 5. Code extraction and push
 function handleAcceptedTrigger(slug, title, lang, ext) {
   const finalSlug = slug || getProblemSlug();
   const finalLang = lang || getLanguage();
@@ -255,73 +280,52 @@ function handleAcceptedTrigger(slug, title, lang, ext) {
   const finalTitle = title || getProblemTitle();
   const finalExt = ext || getExtension(finalLang);
 
-  extractCodeAndTriggerPush(finalSlug, finalTitle, finalLang, finalExt);
+  // Retrieve code from sessionStorage cache or DOM fallback
+  let code = sessionStorage.getItem("leetgit_submitted_code");
+  if (!code || code.trim() === "") {
+    code = extractCodeFromDOM();
+  }
+
+  if (code && code.trim() !== "") {
+    triggerPush(finalSlug, finalTitle, finalLang, finalExt, code);
+  } else {
+    // Live extraction fallback using chrome.scripting (failsafe in case of late load or missing cache)
+    console.warn("LeetGit: Cached code not found. Querying live editor...");
+    chrome.runtime.sendMessage({ type: "EXTRACT_CODE_NOW" }, (response) => {
+      if (response && response.code) {
+        triggerPush(finalSlug, finalTitle, finalLang, finalExt, response.code);
+      } else {
+        console.error("LeetGit: Live fallback extraction failed.");
+        sessionStorage.removeItem(key); // Reset state to allow retry
+      }
+    });
+  }
 }
 
-// Inject helper script to read from editor and dispatch event with code
-function extractCodeAndTriggerPush(slug, title, lang, ext) {
-  const key = `leetgit_pushed_${slug}_${lang}`;
-
-  const onCodeReady = (e) => {
-    clearTimeout(timeoutId);
-    window.removeEventListener("leethub-code-ready", onCodeReady);
-    const code = e.detail.code;
-
-    if (!code || code.trim() === "") {
-      console.warn("LeetGit: Code extraction returned empty string.");
-      sessionStorage.removeItem(key); // Reset state to allow retry
-      return;
+// Extract code from standard DOM elements (useful on submission details page and static viewer pages)
+function extractCodeFromDOM() {
+  try {
+    // 1. Try reading from a textarea (often houses the code in read-only editors)
+    const textarea = document.querySelector("textarea");
+    if (textarea && textarea.value && textarea.value.trim() !== "") {
+      return textarea.value;
     }
 
-    triggerPush(slug, title, lang, ext, code);
-  };
+    // 2. Try reading from a <pre> or <code> block
+    const preCode = document.querySelector("pre") || document.querySelector("code");
+    if (preCode && preCode.innerText && preCode.innerText.trim() !== "") {
+      return preCode.innerText;
+    }
 
-  // Timeout handler in case the script fails to run or respond
-  const timeoutId = setTimeout(() => {
-    window.removeEventListener("leethub-code-ready", onCodeReady);
-    console.warn("LeetGit: Code extraction timed out (3s).");
-    sessionStorage.removeItem(key);
-  }, 3000);
-
-  window.addEventListener("leethub-code-ready", onCodeReady);
-
-  // Script injection to access window.monaco / CodeMirror in page context
-  const script = document.createElement("script");
-  script.textContent = `
-    (function() {
-      let code = null;
-      try {
-        // 1. Monaco Editor (modern interface)
-        if (window.monaco && window.monaco.editor) {
-          const models = window.monaco.editor.getModels();
-          if (models && models.length > 0) {
-            code = models[0].getValue();
-          }
-        }
-        // 2. CodeMirror (older/legacy interface)
-        if (!code) {
-          const cm = document.querySelector('.CodeMirror');
-          if (cm && cm.CodeMirror) {
-            code = cm.CodeMirror.getValue();
-          }
-        }
-        // 3. Raw text fallback
-        if (!code) {
-          const viewLines = document.querySelector('.view-lines');
-          if (viewLines) {
-            code = viewLines.innerText;
-          }
-        }
-      } catch (err) {
-        console.error("LeetGit: Error in page context script:", err);
-      }
-      window.dispatchEvent(new CustomEvent("leethub-code-ready", {
-        detail: { code }
-      }));
-    })();
-  `;
-  (document.head || document.documentElement).appendChild(script);
-  script.remove();
+    // 3. Try reading from Monaco container lines
+    const viewLines = document.querySelector(".view-lines");
+    if (viewLines && viewLines.innerText && viewLines.innerText.trim() !== "") {
+      return viewLines.innerText;
+    }
+  } catch (err) {
+    console.error("LeetGit: DOM code extraction error:", err);
+  }
+  return null;
 }
 
 function triggerPush(slug, title, lang, ext, code) {
@@ -340,7 +344,6 @@ function triggerPush(slug, title, lang, ext, code) {
   }, (response) => {
     if (chrome.runtime.lastError || !response || !response.success) {
       console.error("LeetGit: Push failed:", chrome.runtime.lastError || response?.error);
-      // Remove flag on failure so user can try again
       sessionStorage.removeItem(key);
     } else {
       console.log("LeetGit: Solution pushed successfully!", response.githubUrl);

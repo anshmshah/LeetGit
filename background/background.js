@@ -12,6 +12,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
     return true; // Keep message channel open for asynchronous sendResponse
   }
+
+  if (message.type === "EXTRACT_CODE_NOW") {
+    extractCodeFromTab(sender.tab.id)
+      .then((code) => sendResponse({ code }))
+      .catch((err) => {
+        console.error("Error extracting code:", err);
+        sendResponse({ error: err.message });
+      });
+    return true; // Keep message channel open for asynchronous sendResponse
+  }
 });
 
 // Primary orchestrator for the push operation
@@ -166,4 +176,46 @@ async function updatePushHistory(newEntry) {
       });
     });
   });
+}
+
+// Safely query and extract code from editor contexts in the target tab's MAIN world
+async function extractCodeFromTab(tabId) {
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tabId },
+      world: "MAIN",
+      func: () => {
+        try {
+          // 1. Monaco Editor (Modern LeetCode UI)
+          if (window.monaco && window.monaco.editor) {
+            const models = window.monaco.editor.getModels();
+            if (models && models.length > 0) {
+              return models[0].getValue();
+            }
+          }
+
+          // 2. CodeMirror (Older LeetCode UI)
+          const cmElement = document.querySelector(".CodeMirror");
+          if (cmElement && cmElement.CodeMirror) {
+            return cmElement.CodeMirror.getValue();
+          }
+
+          // 3. Fallback to textarea
+          const textarea = document.querySelector("textarea.pattern-lock-textarea") || 
+                           document.querySelector("textarea[class*='editor']") ||
+                           document.querySelector("textarea");
+          if (textarea) {
+            return textarea.value;
+          }
+        } catch (e) {
+          console.error("LeetGit extract error:", e);
+        }
+        return null;
+      }
+    });
+    return results && results[0] ? results[0].result : null;
+  } catch (err) {
+    console.error("Failed to execute scripting extraction:", err);
+    return null;
+  }
 }
