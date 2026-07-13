@@ -37,6 +37,219 @@ function safeNotify(options) {
   }
 }
 
+// Fetch problem metadata (Difficulty, Title, Tags, Number) from LeetCode's public GraphQL API
+async function fetchLeetCodeProblemInfo(slug) {
+  try {
+    const response = await fetch("https://leetcode.com/graphql", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      body: JSON.stringify({
+        query: `
+          query questionData($titleSlug: String!) {
+            question(titleSlug: $titleSlug) {
+              questionFrontendId
+              title
+              difficulty
+              topicTags {
+                name
+              }
+            }
+          }
+        `,
+        variables: { titleSlug: slug }
+      })
+    });
+    
+    if (response.ok) {
+      const result = await response.json();
+      if (result.data && result.data.question) {
+        const q = result.data.question;
+        return {
+          questionId: q.questionFrontendId || "",
+          title: q.title || "",
+          difficulty: q.difficulty || "Easy",
+          tags: q.topicTags ? q.topicTags.map(t => t.name) : [],
+          slug: slug
+        };
+      }
+    }
+  } catch (err) {
+    console.error("LeetGit: Error fetching LeetCode metadata:", err);
+  }
+  return null;
+}
+
+// Convert extension suffix to readable language name
+function getLangNameFromExtension(ext) {
+  const map = {
+    ".cpp": "C++",
+    ".py": "Python",
+    ".java": "Java",
+    ".js": "JavaScript",
+    ".ts": "TypeScript",
+    ".cs": "C#",
+    ".go": "Go",
+    ".rs": "Rust",
+    ".kt": "Kotlin",
+    ".swift": "Swift",
+    ".rb": "Ruby",
+    ".scala": "Scala",
+    ".php": "PHP",
+    ".c": "C"
+  };
+  return map[ext] || "Solution";
+}
+
+// Parse existing README markdown table and insert/update current problem solution links
+function updateReadmeContent(existingContent, info, relativeFileLink, extension) {
+  const headers = "| # | Title | Difficulty | Category / Tags | Solution |";
+  const divider = "|---|---|---|---|---|";
+  
+  let lines = existingContent ? existingContent.split("\n") : [];
+  let tableStartIndex = -1;
+  let parsedRows = [];
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line.startsWith("|") && line.toLowerCase().includes("difficulty") && line.toLowerCase().includes("solution")) {
+      tableStartIndex = i;
+      break;
+    }
+  }
+  
+  // Parse existing rows from markdown table
+  if (tableStartIndex !== -1) {
+    for (let i = tableStartIndex + 2; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (line.startsWith("|")) {
+        const parts = line.split("|").map(p => p.trim());
+        // parts array: ["", "#", "Title Link", "Difficulty Badge", "Tags", "Solutions Link(s)", ""]
+        if (parts.length >= 6) {
+          parsedRows.push({
+            id: parts[1],
+            title: parts[2],
+            difficulty: parts[3],
+            tags: parts[4],
+            solutions: parts[5]
+          });
+        }
+      } else if (line === "" && parsedRows.length > 0) {
+        break; // End of table
+      }
+    }
+  }
+  
+  const langName = getLangNameFromExtension(extension);
+  const solLink = `[${langName}](${relativeFileLink})`;
+  
+  // Check if problem already exists in our table rows
+  const existingRow = parsedRows.find(r => r.id === info.questionId);
+  if (existingRow) {
+    // Add solution link if it isn't listed
+    if (!existingRow.solutions.includes(solLink)) {
+      if (existingRow.solutions.trim() === "" || existingRow.solutions === "-") {
+        existingRow.solutions = solLink;
+      } else {
+        existingRow.solutions += `, ${solLink}`;
+      }
+    }
+  } else {
+    // Determine shields.io color badge based on difficulty
+    const badgeColor = info.difficulty === "Easy" ? "brightgreen" : (info.difficulty === "Medium" ? "orange" : "red");
+    const diffBadge = `![${info.difficulty}](https://img.shields.io/badge/-${info.difficulty}-${badgeColor})`;
+    
+    parsedRows.push({
+      id: info.questionId,
+      title: `[${info.title}](https://leetcode.com/problems/${info.slug}/)`,
+      difficulty: diffBadge,
+      tags: info.tags.join(", ") || "-",
+      solutions: solLink
+    });
+  }
+  
+  // Sort rows ascending by problem number
+  parsedRows.sort((a, b) => {
+    const aNum = parseInt(a.id, 10) || 99999;
+    const bNum = parseInt(b.id, 10) || 99999;
+    return aNum - bNum;
+  });
+  
+  // Reconstruct README
+  let newContent = "";
+  if (tableStartIndex !== -1) {
+    newContent = lines.slice(0, tableStartIndex).join("\n") + "\n";
+  } else {
+    newContent = "# LeetCode Solutions\n\nA collection of LeetCode solutions synced automatically with LeetGit.\n\n";
+  }
+  
+  newContent += headers + "\n" + divider + "\n";
+  parsedRows.forEach(r => {
+    newContent += `| ${r.id} | ${r.title} | ${r.difficulty} | ${r.tags} | ${r.solutions} |\n`;
+  });
+  
+  // Append trailing markdown contents if any
+  if (tableStartIndex !== -1) {
+    let tableEndIndex = tableStartIndex + 2 + parsedRows.length;
+    let actualEnd = tableEndIndex;
+    while (actualEnd < lines.length && (lines[actualEnd].trim().startsWith("|") || lines[actualEnd].trim() === "")) {
+      actualEnd++;
+    }
+    if (actualEnd < lines.length) {
+      newContent += "\n" + lines.slice(actualEnd).join("\n");
+    }
+  }
+  
+  return newContent;
+}
+
+// Push updated README.md to GitHub repository
+async function pushReadmeUpdate(repoOwner, repoName, githubToken, info, relativeFileLink, extension) {
+  const path = "README.md";
+  const readmeUrl = `https://api.github.com/repos/${repoOwner}/${repoName}/contents/${path}`;
+  
+  let existingSha = null;
+  let existingContent = "";
+  
+  try {
+    const getRes = await fetch(readmeUrl, {
+      method: "GET",
+      headers: {
+        "Authorization": `token ${githubToken}`,
+        "Accept": "application/vnd.github.v3+json"
+      }
+    });
+    
+    if (getRes.status === 200) {
+      const data = await getRes.json();
+      existingSha = data.sha;
+      existingContent = decodeURIComponent(escape(atob(data.content)));
+    }
+    
+    const updatedContent = updateReadmeContent(existingContent, info, relativeFileLink, extension);
+    const base64Content = btoa(unescape(encodeURIComponent(updatedContent)));
+    
+    await fetch(readmeUrl, {
+      method: "PUT",
+      headers: {
+        "Authorization": `token ${githubToken}`,
+        "Content-Type": "application/json",
+        "Accept": "application/vnd.github.v3+json"
+      },
+      body: JSON.stringify({
+        message: `📝 Update README: ${info.title} (${getLangNameFromExtension(extension)})`,
+        content: base64Content,
+        sha: existingSha || undefined
+      })
+    });
+    console.log("LeetGit: README.md updated successfully!");
+  } catch (err) {
+    console.error("LeetGit: Error pushing README update:", err);
+  }
+}
+
 // Primary orchestrator for the push operation
 async function handleAcceptedSubmission(payload, tab) {
   if (!tab || !tab.id) {
@@ -74,14 +287,32 @@ async function handleAcceptedSubmission(payload, tab) {
     return { success: false, error: "Failed to extract code from LeetCode editor." };
   }
 
-  // 3. Prepare push details
   const { problemSlug, problemTitle, language, extension } = payload;
-  const path = `${problemSlug}/${problemSlug}${extension}`;
-  const commitMessage = `✅ Solve: ${problemTitle} (${language})`;
+
+  // 3. Fetch difficulty, ID and tags from LeetCode API
+  const info = await fetchLeetCodeProblemInfo(problemSlug) || {
+    questionId: "",
+    title: problemTitle,
+    difficulty: "Easy",
+    tags: [],
+    slug: problemSlug
+  };
+
+  // If GraphQL fails to get ID, try extracting from title
+  if (!info.questionId) {
+    const match = problemTitle.match(/^(\d+)\./);
+    info.questionId = match ? match[1] : "";
+    info.title = problemTitle.replace(/^\d+\.\s*/, "");
+  }
+
+  // Group files into categorized folders: Easy/ Medium/ Hard/
+  const difficultyDir = info.difficulty; // e.g. "Easy", "Medium", "Hard"
+  const path = `${difficultyDir}/${problemSlug}/${problemSlug}${extension}`;
+  const commitMessage = `✅ Solve: ${info.title} (${language})`;
   const base64Code = btoa(unescape(encodeURIComponent(code)));
 
   try {
-    // 4. Check if file already exists to get its SHA
+    // 4. Check if file already exists to get its SHA (at the categorized path)
     let existingSha = null;
     const getFileUrl = `https://api.github.com/repos/${repoOwner}/${repoName}/contents/${path}`;
 
@@ -129,18 +360,21 @@ async function handleAcceptedSubmission(payload, tab) {
 
       // 6. Save success to pushHistory
       await updatePushHistory({
-        problemTitle,
+        problemTitle: info.title,
         language,
         timestamp: new Date().toISOString(),
         githubUrl
       });
 
-      // 7. Show success notification
+      // 7. Update README.md automatically
+      await pushReadmeUpdate(repoOwner, repoName, githubToken, info, path, extension);
+
+      // 8. Show success notification
       safeNotify({
         type: "basic",
         iconUrl: "/icons/icon128.png",
         title: "Solution Pushed!",
-        message: `✅ Pushed: ${problemTitle} to GitHub!`
+        message: `✅ Pushed: ${info.title} to GitHub!`
       });
 
       return { success: true, githubUrl };

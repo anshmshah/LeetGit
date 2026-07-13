@@ -107,8 +107,18 @@ function setupEventListeners() {
   });
 }
 
+// Cooldown tracker to prevent click/keydown double submissions
+let lastSubmitTime = 0;
+
 // Handler for submission click or keyboard shortcut - caches code immediately to avoid navigation race condition
 function handleSubmissionInitiated() {
+  const now = Date.now();
+  if (now - lastSubmitTime < 3000) {
+    console.log("LeetGit: Submission extraction cooldown active. Ignoring duplicate trigger.");
+    return;
+  }
+  lastSubmitTime = now;
+
   const slug = getProblemSlug();
   const lang = getLanguage();
   if (slug && lang) {
@@ -244,6 +254,7 @@ function getProblemSlug() {
   return "";
 }
 
+// Extract clean problem title
 function getProblemTitle() {
   // Modern LeetCode problem page title element
   const titleEl = document.querySelector('[data-cy="question-title"]') || 
@@ -347,7 +358,10 @@ function handleAcceptedTrigger(slug, title, lang, ext) {
         triggerPush(finalSlug, finalTitle, finalLang, finalExt, response.code);
       } else {
         console.error("LeetGit: Live fallback extraction failed.");
-        sessionStorage.removeItem(key); // Reset state to allow retry
+        // Only clear pending status if it wasn't modified in the meantime by a concurrent push
+        if (sessionStorage.getItem(key) === "pending") {
+          sessionStorage.removeItem(key);
+        }
       }
     });
   }
@@ -395,7 +409,10 @@ function triggerPush(slug, title, lang, ext, code) {
   }, (response) => {
     if (!response || !response.success) {
       console.error("LeetGit: Push failed:", response?.error || "Unknown error");
-      sessionStorage.removeItem(key);
+      // Only remove if it hasn't been set to "pushed" by a concurrent successful request
+      if (sessionStorage.getItem(key) === "pending") {
+        sessionStorage.removeItem(key);
+      }
     } else {
       console.log("LeetGit: Solution pushed successfully!", response.githubUrl);
       sessionStorage.setItem(key, "pushed");
