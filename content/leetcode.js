@@ -82,26 +82,43 @@ function setupEventListeners() {
     }, 1000);
   });
 
-  // Listen for clicks on the "Submit" button to clear deduplication flags and extract code early
+  // Listen for clicks on the Submit or Run buttons to manage submit state
   document.addEventListener("click", (e) => {
     const button = e.target.closest("button");
     if (button) {
-      const text = button.textContent || "";
-      const isSubmit = text.trim() === "Submit" || 
+      const text = (button.textContent || "").trim();
+      
+      const isSubmit = text === "Submit" || 
                        button.getAttribute("data-e2e-locator") === "console-submit-button" ||
                        button.classList.contains("submit-btn");
+                       
+      const isRun = text === "Run" || 
+                    text === "Run Code" || 
+                    button.getAttribute("data-e2e-locator") === "console-run-button" ||
+                    button.classList.contains("run-btn");
+                    
       if (isSubmit) {
         handleSubmissionInitiated();
+      } else if (isRun) {
+        console.log("LeetGit: Run Code clicked. Resetting submit flag.");
+        sessionStorage.removeItem("leetgit_is_submit");
       }
     }
   });
 
-  // Listen for keyboard submissions (Ctrl+Enter or Cmd+Enter)
+  // Listen for keyboard submissions and runs (shortcuts)
   document.addEventListener("keydown", (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-      const activeEl = document.activeElement;
-      if (activeEl && (activeEl.tagName === "TEXTAREA" || activeEl.closest(".editor") || activeEl.closest(".monaco-editor"))) {
+    const activeEl = document.activeElement;
+    const isEditorActive = activeEl && (activeEl.tagName === "TEXTAREA" || activeEl.closest(".editor") || activeEl.closest(".monaco-editor"));
+    
+    if (isEditorActive) {
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+        // Ctrl+Enter / Cmd+Enter = Submit
         handleSubmissionInitiated();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === "'") {
+        // Ctrl+' / Cmd+' = Run Code
+        console.log("LeetGit: Run Code shortcut detected. Resetting submit flag.");
+        sessionStorage.removeItem("leetgit_is_submit");
       }
     }
   });
@@ -124,6 +141,9 @@ function handleSubmissionInitiated() {
   if (slug && lang) {
     const key = `leetgit_pushed_${slug}_${lang}`;
     sessionStorage.removeItem(key);
+    
+    // Set submit flag state to allow pushes only for this run
+    sessionStorage.setItem("leetgit_is_submit", "true");
     console.log(`LeetGit: Submission initiated. Cleared dedupe key: ${key}`);
 
     // Request early code extraction via background script (using chrome.scripting to bypass CSP)
@@ -149,15 +169,23 @@ function startObserver() {
     // Check if the DOM shows "Accepted"
     // Modern UI submission panel result
     const subResult = document.querySelector('[data-e2e-locator="submission-result"]');
-    if (subResult && subResult.textContent.trim() === "Accepted") {
-      const slug = getProblemSlug();
-      const lang = getLanguage();
-      if (slug && lang) {
-        const title = getProblemTitle();
-        const ext = getExtension(lang);
-        handleAcceptedTrigger(slug, title, lang, ext);
+    if (subResult) {
+      const text = subResult.textContent.trim();
+      if (text === "Accepted") {
+        const slug = getProblemSlug();
+        const lang = getLanguage();
+        if (slug && lang) {
+          const title = getProblemTitle();
+          const ext = getExtension(lang);
+          handleAcceptedTrigger(slug, title, lang, ext);
+        }
+        return;
+      } else if (text !== "Pending" && text !== "Judging" && text !== "") {
+        // Submission failed. Clear submit state to prevent Run Code from triggering pushes later
+        console.log("LeetGit: Submission failed (DOM):", text);
+        sessionStorage.removeItem("leetgit_is_submit");
+        sessionStorage.removeItem("leetgit_submitted_code");
       }
-      return;
     }
 
     // Fallbacks: checking green-s or class elements with accepted keyword
@@ -172,6 +200,18 @@ function startObserver() {
           handleAcceptedTrigger(slug, title, lang, ext);
         }
         return;
+      }
+    }
+
+    // Fallback: checking error/failure messages in DOM to reset submit state
+    const redElements = document.querySelectorAll('.text-red-s, .text-danger, [class*="error"], [class*="fail"]');
+    for (const el of redElements) {
+      const text = el.textContent.trim();
+      if (text === "Wrong Answer" || text === "Runtime Error" || text === "Time Limit Exceeded" || text === "Compile Error" || text === "Memory Limit Exceeded") {
+        console.log("LeetGit: Submission failed (DOM fallback):", text);
+        sessionStorage.removeItem("leetgit_is_submit");
+        sessionStorage.removeItem("leetgit_submitted_code");
+        break;
       }
     }
   });
@@ -223,6 +263,8 @@ function checkSubmissionDetailPage(retries = 10) {
     if (slug && lang) {
       const title = getProblemTitle();
       const ext = getExtension(lang);
+      // Detail pages are direct solutions, allow push directly
+      sessionStorage.setItem("leetgit_is_submit", "true");
       handleAcceptedTrigger(slug, title, lang, ext);
       return;
     }
@@ -327,6 +369,12 @@ function getExtension(lang) {
 
 // 5. Code extraction and push
 function handleAcceptedTrigger(slug, title, lang, ext) {
+  // STRICT CHECK: Verify that the trigger is in Submit mode (bypasses Run Code)
+  if (sessionStorage.getItem("leetgit_is_submit") !== "true") {
+    console.log("LeetGit: Ignored accepted event because it did not originate from an active Submit action.");
+    return;
+  }
+
   const finalSlug = slug || getProblemSlug();
   const finalLang = lang || getLanguage();
   if (!finalSlug || !finalLang) return;
@@ -362,6 +410,7 @@ function handleAcceptedTrigger(slug, title, lang, ext) {
         if (sessionStorage.getItem(key) === "pending") {
           sessionStorage.removeItem(key);
         }
+        sessionStorage.removeItem("leetgit_is_submit");
       }
     });
   }
@@ -413,9 +462,14 @@ function triggerPush(slug, title, lang, ext, code) {
       if (sessionStorage.getItem(key) === "pending") {
         sessionStorage.removeItem(key);
       }
+      sessionStorage.removeItem("leetgit_is_submit");
     } else {
       console.log("LeetGit: Solution pushed successfully!", response.githubUrl);
       sessionStorage.setItem(key, "pushed");
+      
+      // Successfully pushed! Clean up submit session state
+      sessionStorage.removeItem("leetgit_is_submit");
+      sessionStorage.removeItem("leetgit_submitted_code");
     }
   });
 }
