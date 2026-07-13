@@ -43,13 +43,21 @@ function setupEventListeners() {
     const lang = language || getLanguage();
     const ext = getExtension(lang);
 
-    triggerPush(slug, title, lang, ext);
+    handleAcceptedTrigger(slug, title, lang, ext);
   });
 
   window.addEventListener("leetgit-accepted-graphql", (e) => {
     console.log("LeetGit: Received accepted GraphQL event. Checking DOM...");
     // Wait briefly for DOM to update then trigger extraction
-    setTimeout(handleAcceptedTrigger, 1000);
+    setTimeout(() => {
+      const slug = getProblemSlug();
+      const lang = getLanguage();
+      if (slug && lang) {
+        const title = getProblemTitle();
+        const ext = getExtension(lang);
+        handleAcceptedTrigger(slug, title, lang, ext);
+      }
+    }, 1000);
   });
 
   // Listen for clicks on the "Submit" button to clear deduplication flags
@@ -85,7 +93,13 @@ function startObserver() {
     // Modern UI submission panel result
     const subResult = document.querySelector('[data-e2e-locator="submission-result"]');
     if (subResult && subResult.textContent.trim() === "Accepted") {
-      handleAcceptedTrigger();
+      const slug = getProblemSlug();
+      const lang = getLanguage();
+      if (slug && lang) {
+        const title = getProblemTitle();
+        const ext = getExtension(lang);
+        handleAcceptedTrigger(slug, title, lang, ext);
+      }
       return;
     }
 
@@ -93,7 +107,13 @@ function startObserver() {
     const greenElements = document.querySelectorAll('.text-green-s, [class*="accepted"]');
     for (const el of greenElements) {
       if (el.textContent.trim() === "Accepted") {
-        handleAcceptedTrigger();
+        const slug = getProblemSlug();
+        const lang = getLanguage();
+        if (slug && lang) {
+          const title = getProblemTitle();
+          const ext = getExtension(lang);
+          handleAcceptedTrigger(slug, title, lang, ext);
+        }
         return;
       }
     }
@@ -143,16 +163,9 @@ function checkSubmissionDetailPage(retries = 10) {
     const slug = getProblemSlug();
     const lang = getLanguage();
     if (slug && lang) {
-      const key = `leetgit_pushed_${slug}_${lang}`;
-      if (sessionStorage.getItem(key)) {
-        return; // Already pushed or pushing
-      }
-      
-      sessionStorage.setItem(key, "pending");
       const title = getProblemTitle();
       const ext = getExtension(lang);
-      
-      triggerPush(slug, title, lang, ext);
+      handleAcceptedTrigger(slug, title, lang, ext);
       return;
     }
   }
@@ -202,6 +215,7 @@ function getProblemTitle() {
   return "LeetCode Solution";
 }
 
+// Extract the language of the current editor session
 function getLanguage() {
   // Modern UI lang select button
   const langBtn = document.querySelector('button[id*="lang-select"]') || 
@@ -224,26 +238,93 @@ function getExtension(lang) {
   return ".txt";
 }
 
-// 5. Trigger extraction and background push
-function handleAcceptedTrigger() {
-  const slug = getProblemSlug();
-  const lang = getLanguage();
-  if (!slug || !lang) return;
+// 5. Code extraction in MAIN world and push
+function handleAcceptedTrigger(slug, title, lang, ext) {
+  const finalSlug = slug || getProblemSlug();
+  const finalLang = lang || getLanguage();
+  if (!finalSlug || !finalLang) return;
 
-  const key = `leetgit_pushed_${slug}_${lang}`;
+  const key = `leetgit_pushed_${finalSlug}_${finalLang}`;
   if (sessionStorage.getItem(key)) {
     return; // Already pushed or pending
   }
 
+  // Set to pending state to prevent duplicate observer checks from running
   sessionStorage.setItem(key, "pending");
 
-  const title = getProblemTitle();
-  const ext = getExtension(lang);
+  const finalTitle = title || getProblemTitle();
+  const finalExt = ext || getExtension(finalLang);
 
-  triggerPush(slug, title, lang, ext);
+  extractCodeAndTriggerPush(finalSlug, finalTitle, finalLang, finalExt);
 }
 
-function triggerPush(slug, title, lang, ext) {
+// Inject helper script to read from editor and dispatch event with code
+function extractCodeAndTriggerPush(slug, title, lang, ext) {
+  const key = `leetgit_pushed_${slug}_${lang}`;
+
+  const onCodeReady = (e) => {
+    clearTimeout(timeoutId);
+    window.removeEventListener("leethub-code-ready", onCodeReady);
+    const code = e.detail.code;
+
+    if (!code || code.trim() === "") {
+      console.warn("LeetGit: Code extraction returned empty string.");
+      sessionStorage.removeItem(key); // Reset state to allow retry
+      return;
+    }
+
+    triggerPush(slug, title, lang, ext, code);
+  };
+
+  // Timeout handler in case the script fails to run or respond
+  const timeoutId = setTimeout(() => {
+    window.removeEventListener("leethub-code-ready", onCodeReady);
+    console.warn("LeetGit: Code extraction timed out (3s).");
+    sessionStorage.removeItem(key);
+  }, 3000);
+
+  window.addEventListener("leethub-code-ready", onCodeReady);
+
+  // Script injection to access window.monaco / CodeMirror in page context
+  const script = document.createElement("script");
+  script.textContent = `
+    (function() {
+      let code = null;
+      try {
+        // 1. Monaco Editor (modern interface)
+        if (window.monaco && window.monaco.editor) {
+          const models = window.monaco.editor.getModels();
+          if (models && models.length > 0) {
+            code = models[0].getValue();
+          }
+        }
+        // 2. CodeMirror (older/legacy interface)
+        if (!code) {
+          const cm = document.querySelector('.CodeMirror');
+          if (cm && cm.CodeMirror) {
+            code = cm.CodeMirror.getValue();
+          }
+        }
+        // 3. Raw text fallback
+        if (!code) {
+          const viewLines = document.querySelector('.view-lines');
+          if (viewLines) {
+            code = viewLines.innerText;
+          }
+        }
+      } catch (err) {
+        console.error("LeetGit: Error in page context script:", err);
+      }
+      window.dispatchEvent(new CustomEvent("leethub-code-ready", {
+        detail: { code }
+      }));
+    })();
+  `;
+  (document.head || document.documentElement).appendChild(script);
+  script.remove();
+}
+
+function triggerPush(slug, title, lang, ext, code) {
   const key = `leetgit_pushed_${slug}_${lang}`;
   console.log(`LeetGit: Sending push message for ${title} (${lang})`);
 
@@ -253,7 +334,8 @@ function triggerPush(slug, title, lang, ext) {
       problemSlug: slug,
       problemTitle: title,
       language: lang,
-      extension: ext
+      extension: ext,
+      code: code
     }
   }, (response) => {
     if (chrome.runtime.lastError || !response || !response.success) {

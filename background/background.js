@@ -37,50 +37,17 @@ async function handleAcceptedSubmission(payload, tab) {
     return { success: false, error: "Configuration missing." };
   }
 
-  // 2. Extract code from the LeetCode editor (MAIN world access to Monaco)
-  let code = null;
-  try {
-    const results = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      world: "MAIN",
-      func: () => {
-        // Retry logic inside the page context if needed, but since it's already accepted, the editor is loaded
-        try {
-          // 1. Monaco Editor (Modern LeetCode UI)
-          if (window.monaco && window.monaco.editor) {
-            const models = window.monaco.editor.getModels();
-            if (models && models.length > 0) {
-              return models[0].getValue();
-            }
-          }
+  // 2. Retrieve extracted code from the payload
+  let code = payload.code || null;
 
-          // 2. CodeMirror (Older LeetCode UI)
-          const cmElement = document.querySelector(".CodeMirror");
-          if (cmElement && cmElement.CodeMirror) {
-            return cmElement.CodeMirror.getValue();
-          }
-
-          // 3. Fallback to textarea
-          const textarea = document.querySelector("textarea.pattern-lock-textarea") || 
-                           document.querySelector("textarea[class*='editor']") ||
-                           document.querySelector("textarea");
-          if (textarea) {
-            return textarea.value;
-          }
-        } catch (e) {
-          console.error("LeetGit: Error extracting editor contents: ", e);
-        }
-        return null;
-      }
+  if (!code || code.trim() === '') {
+    console.warn("LeetGit: Code extraction returned empty.");
+    chrome.notifications.create({
+      type: "basic",
+      iconUrl: "/icons/icon128.png", 
+      title: "Push Failed",
+      message: "❌ Could not extract code from editor. Try submitting again."
     });
-
-    code = results && results[0] ? results[0].result : null;
-  } catch (err) {
-    console.error("Failed to execute code extraction script:", err);
-  }
-
-  if (!code || code.trim() === "") {
-    console.warn("LeetGit: Code extraction returned empty string or failed.");
     return { success: false, error: "Failed to extract code from LeetCode editor." };
   }
 
