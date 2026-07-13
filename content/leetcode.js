@@ -330,7 +330,7 @@ function extractCodeFromDOM() {
 
 function triggerPush(slug, title, lang, ext, code) {
   const key = `leetgit_pushed_${slug}_${lang}`;
-  console.log(`LeetGit: Sending push message for ${title} (${lang})`);
+  console.log("LeetGit: Sending push message for " + title + " (" + lang + ")");
 
   chrome.runtime.sendMessage({
     type: "SUBMISSION_ACCEPTED_DETECTED",
