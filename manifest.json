@@ -7,7 +7,8 @@
     "storage",
     "identity",
     "activeTab",
-    "scripting"
+    "scripting",
+    "notifications"
   ],
   "host_permissions": [
     "https://leetcode.com/*",

@@ -263,14 +263,42 @@ function getProblemTitle() {
   return "LeetCode Solution";
 }
 
-// Extract the language of the current editor session
+// Extract the active programming language from the editor toolbar or DOM elements
 function getLanguage() {
-  // Modern UI lang select button
-  const langBtn = document.querySelector('button[id*="lang-select"]') || 
-                  document.querySelector('[data-cy="lang-select"]');
-  if (langBtn) return langBtn.textContent.trim();
+  const knownLanguages = [
+    "c++", "java", "python", "python3", "c", "c#", "javascript", 
+    "typescript", "go", "rust", "kotlin", "swift", "ruby", "scala", 
+    "php", "html", "sql", "clojure", "elixir", "erlang", "f#", 
+    "haskell", "lisp", "ocaml", "pascal", "perl", "r", "scheme", "smalltalk"
+  ];
+  
+  // Prioritize scanning buttons inside the editor header/toolbar area
+  const editorHeader = document.querySelector('[class*="editor-tool"]') || 
+                       document.querySelector('[class*="control-bar"]') ||
+                       document.querySelector('.editor-toolbar') ||
+                       document.querySelector('[class*="Header"]') ||
+                       document.body;
+                       
+  const buttons = editorHeader.querySelectorAll('button');
+  for (const button of buttons) {
+    const text = button.textContent.trim().toLowerCase();
+    if (knownLanguages.includes(text)) {
+      return button.textContent.trim();
+    }
+  }
+  
+  // Scan all page buttons if toolbar area was not matched
+  if (editorHeader !== document.body) {
+    const allButtons = document.querySelectorAll('button');
+    for (const button of allButtons) {
+      const text = button.textContent.trim().toLowerCase();
+      if (knownLanguages.includes(text)) {
+        return button.textContent.trim();
+      }
+    }
+  }
 
-  // Submission details page lang text
+  // Fallback to submission details program elements
   const langEl = document.querySelector("#submission-program-info") || 
                  document.querySelector("div[class*='language']");
   if (langEl) return langEl.textContent.trim();

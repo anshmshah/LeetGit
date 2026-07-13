@@ -24,6 +24,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
+// Helper to safely trigger extension desktop notifications without crashing on permission errors
+function safeNotify(options) {
+  if (typeof chrome !== "undefined" && chrome.notifications && chrome.notifications.create) {
+    try {
+      chrome.notifications.create(options);
+    } catch (err) {
+      console.warn("LeetGit: Notification error:", err);
+    }
+  } else {
+    console.log(`LeetGit Notification [${options.title}]: ${options.message}`);
+  }
+}
+
 // Primary orchestrator for the push operation
 async function handleAcceptedSubmission(payload, tab) {
   if (!tab || !tab.id) {
@@ -38,7 +51,7 @@ async function handleAcceptedSubmission(payload, tab) {
   const { githubToken, githubUsername, repoOwner, repoName } = credentials;
 
   if (!githubToken || !repoOwner || !repoName) {
-    chrome.notifications.create({
+    safeNotify({
       type: "basic",
       iconUrl: "/icons/icon128.png",
       title: "LeetGit Configuration Required",
@@ -52,7 +65,7 @@ async function handleAcceptedSubmission(payload, tab) {
 
   if (!code || code.trim() === '') {
     console.warn("LeetGit: Code extraction returned empty.");
-    chrome.notifications.create({
+    safeNotify({
       type: "basic",
       iconUrl: "/icons/icon128.png", 
       title: "Push Failed",
@@ -86,7 +99,7 @@ async function handleAcceptedSubmission(payload, tab) {
     } else if (checkResponse.status === 401) {
       // Clear token since it is invalid
       chrome.storage.local.remove(["githubToken", "githubUsername", "repoName", "repoOwner"]);
-      chrome.notifications.create({
+      safeNotify({
         type: "basic",
         iconUrl: "/icons/icon128.png",
         title: "LeetGit Session Expired",
@@ -123,7 +136,7 @@ async function handleAcceptedSubmission(payload, tab) {
       });
 
       // 7. Show success notification
-      chrome.notifications.create({
+      safeNotify({
         type: "basic",
         iconUrl: "/icons/icon128.png",
         title: "Solution Pushed!",
@@ -135,7 +148,7 @@ async function handleAcceptedSubmission(payload, tab) {
       const errData = await putResponse.json();
       const errorMsg = errData.message || "Failed to commit changes.";
       
-      chrome.notifications.create({
+      safeNotify({
         type: "basic",
         iconUrl: "/icons/icon128.png",
         title: "Push Failed",
@@ -147,7 +160,7 @@ async function handleAcceptedSubmission(payload, tab) {
 
   } catch (err) {
     console.error("Network or API error:", err);
-    chrome.notifications.create({
+    safeNotify({
       type: "basic",
       iconUrl: "/icons/icon128.png",
       title: "Push Failed",
