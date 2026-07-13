@@ -1,6 +1,6 @@
 // Configuration constants - Update these with your deployed Vercel URL and GitHub Client ID
-const VERCEL_BACKEND_URL = "https://your-vercel-backend.vercel.app"; // Replace with your Vercel deployment URL
-const GITHUB_CLIENT_ID = "YOUR_CLIENT_ID"; // Replace with your GitHub OAuth App Client ID
+const VERCEL_BACKEND_URL = process.env.VERCEL_BACKEND_URL; // Replace with your Vercel deployment URL
+const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID; // Replace with your GitHub OAuth App Client ID
 
 // DOM Elements
 const stateLoggedOut = document.getElementById("state-logged-out");
